@@ -7,3 +7,4 @@ torch
 streamlit
 requests
 python-dotenv
+ollama
