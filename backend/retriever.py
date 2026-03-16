@@ -1,15 +1,21 @@
 from sentence_transformers import SentenceTransformer, CrossEncoder
+import os
 import chromadb
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 class LegalRetriever:
-    def __init__(self, chroma_path="chroma_db", collection_name="legal_docs",
+    def __init__(self, chroma_path=None, collection_name="legal_docs",
                  embed_model_name='all-MiniLM-L6-v2',
                  rerank_model_name='cross-encoder/ms-marco-MiniLM-L-6-v2'):
-        # Embedding model
+        # If no path is provided, use a path relative to this file's location
+        if chroma_path is None:
+            # Get the directory of this file (retriever.py)
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            # Go up one level to the project root
+            project_root = os.path.dirname(current_dir)
+            chroma_path = os.path.join(project_root, "chroma_db")
         self.embed_model = SentenceTransformer(embed_model_name)
-        # Reranker
         self.reranker = CrossEncoder(rerank_model_name)
-        # Chroma client
         self.client = chromadb.PersistentClient(path=chroma_path)
         self.collection = self.client.get_collection(collection_name)
 
