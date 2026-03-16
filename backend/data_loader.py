@@ -72,14 +72,14 @@ def load_ncrb_data(csv_path="data/ncrb_data.csv"):
 def load_judgments_csv(csv_path="data/judgments.csv"):
     """
     Reads the bail judgments CSV.
-    Expected columns based on earlier conversations:
+    Based on your analysis script, the expected columns are:
         case_id, case_title, court, date, judge, ipc_sections, bail_type,
         bail_cancellation_case, landmark_case, accused_name, accused_gender,
         prior_cases, bail_outcome, bail_outcome_label_detailed, crime_type,
         facts, legal_issues, judgment_reason, summary, bias_flag,
         parity_argument_used, legal_principles_discussed, region,
         source_filename, special_laws
-    If some columns are missing, they are skipped.
+    The function concatenates all non‑empty fields into a single text chunk.
     """
     df = pd.read_csv(csv_path)
     chunks = []
@@ -90,12 +90,13 @@ def load_judgments_csv(csv_path="data/judgments.csv"):
         for col in df.columns:
             val = row[col]
             if pd.notna(val) and str(val).strip() != '':
+                # For list‑like strings (e.g., ipc_sections), keep them as is
                 text_parts.append(f"{col}: {val}")
         text = "\n".join(text_parts)
 
         chunks.append(text)
 
-        # Metadata for filtering
+        # Metadata for filtering (store key fields)
         meta = {
             "source": "bail_judgment",
             "case_id": row.get('case_id', ''),
