@@ -56,7 +56,7 @@ def load_ncrb_data(csv_path="data/ncrb_data.csv"):
         text += f"Cases discharged: {row['Cases Discharged - ( Col. 16)']}\n"
         text += f"Cases acquitted: {row['Cases Acquitted - ( Col. 17)']}\n"
         text += f"Trials completed: {row['Cases in which Trials were Completed (Col.15+Col.16+ Col.17) - ( Col. 18)']}\n"
-        # Use the exact column names from the CSV
+        # Use the exact column names from your CSV
         text += f"Conviction rate: {row['Conviction Rate (Col.15/Col.18) *100 - ( Col. 21)']}%\n"
         text += f"Pendency percentage: {row['Pendency Percentage (Col.20/Col.5)*100 - ( Col. 22)']}%\n"
 
