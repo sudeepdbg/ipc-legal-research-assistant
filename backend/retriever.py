@@ -1,4 +1,3 @@
-from sentence_transformers import SentenceTransformer, CrossEncoder
 import os
 import chromadb
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -7,7 +6,6 @@ class LegalRetriever:
     def __init__(self, chroma_path=None, collection_name="legal_docs",
                  embed_model_name='all-MiniLM-L6-v2',
                  rerank_model_name='cross-encoder/ms-marco-MiniLM-L-6-v2'):
-        # If no path is provided, use a path relative to this file's location
         if chroma_path is None:
             # Get the directory of this file (retriever.py)
             current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -37,7 +35,6 @@ class LegalRetriever:
         # 3. Rerank
         pairs = [[query, doc] for doc in docs]
         scores = self.reranker.predict(pairs)
-        # Sort by score descending
         scored = sorted(zip(scores, docs, metas), key=lambda x: x[0], reverse=True)
         top = scored[:rerank_top_k]
         return [{"document": doc, "metadata": meta, "score": score} for score, doc, meta in top]
