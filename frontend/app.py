@@ -140,143 +140,91 @@ div[data-testid="stExpander"] { border: 1px solid #e0ddd5 !important; border-rad
 
 def get_api_key() -> str:
     try:
-        k = st.secrets.get("GEMINI_API_KEY", "") or st.secrets.get("GOOGLE_API_KEY", "")
+        k = st.secrets.get("ANTHROPIC_API_KEY", "")
         if k:
             return k
     except Exception:
         pass
     import os
-    return os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
+    return os.environ.get("ANTHROPIC_API_KEY", "")
 
 
-def call_gemini(prompt: str, history: list = None, system: str = "") -> str:
+def call_ai(prompt: str, history: list = None, system: str = "") -> str:
     """
-    Call Google Gemini via pure REST (requests only — no extra packages).
-    - Uses v1beta endpoint with correct system_instruction format
-    - Retries with exponential backoff on 429 rate limit
-    - Tries multiple free-tier models: flash → 2.0-flash → flash-8b
-    - Truncates history to last 6 messages to stay within token limits
+    Call Claude (Anthropic) API via pure REST — no extra packages needed.
+    Uses claude-haiku-3-5 (fast, cheap, excellent for legal Q&A).
+    Falls back to claude-3-haiku if needed.
     """
     import requests as _req
-    import time as _time
 
     api_key = get_api_key()
     if not api_key:
         return (
             "API key not configured. "
-            "Go to Streamlit Cloud → Settings → Secrets and add:\n"
-            "GEMINI_API_KEY = your_key_here\n"
-            "Get a free key at: aistudio.google.com/app/apikey"
+            "Go to Streamlit Cloud → App Settings → Secrets and add:\n"
+            "ANTHROPIC_API_KEY = sk-ant-...\n"
+            "Get a key at: console.anthropic.com"
         )
 
-    # Free tier models — each has its own separate quota (15 RPM each)
-    # Trying all 3 gives us 3x more effective rate limit
-    models = [
-        "gemini-1.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-8b",
-    ]
-
-    # Build contents — keep last 6 messages to reduce token usage
-    contents = []
+    # Build messages array
+    messages = []
     if history:
-        # Trim history: keep last 6 exchanges (12 messages max)
         trimmed = history[-12:] if len(history) > 12 else history
         for m in trimmed:
-            role = "model" if m["role"] == "assistant" else "user"
-            contents.append({"role": role, "parts": [{"text": m["content"][:1500]}]})
+            role = "assistant" if m["role"] == "assistant" else "user"
+            messages.append({"role": role, "content": str(m["content"])[:2000]})
 
-    # Always append current prompt as final user message
-    contents.append({"role": "user", "parts": [{"text": prompt}]})
+    messages.append({"role": "user", "content": prompt})
 
-    # Build payload — system_instruction is TOP-LEVEL (not inside contents)
     payload = {
-        "contents": contents,
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 1500,
-        },
-        "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH",       "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
-        ],
+        "model": "claude-haiku-4-5",
+        "max_tokens": 1500,
+        "messages": messages,
     }
     if system:
-        payload["system_instruction"] = {"parts": [{"text": system}]}
+        payload["system"] = system
 
-    last_err = ""
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
 
-    for model_idx, model in enumerate(models):
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={api_key}"
+    try:
+        resp = _req.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=payload,
+            timeout=60,
         )
+        if resp.status_code == 200:
+            data = resp.json()
+            content = data.get("content", [])
+            if content and content[0].get("text"):
+                return content[0]["text"]
+            return "Empty response received. Please try again."
 
-        # Retry up to 3 times per model with exponential backoff
-        for attempt in range(3):
-            try:
-                resp = _req.post(url, json=payload, timeout=60)
+        elif resp.status_code == 401:
+            return (
+                "Invalid API key. Check your ANTHROPIC_API_KEY in "
+                "Streamlit Secrets (Settings → Secrets)."
+            )
+        elif resp.status_code == 429:
+            return (
+                "Rate limit reached. Please wait a moment and try again."
+            )
+        elif resp.status_code == 400:
+            err = resp.json().get("error", {}).get("message", resp.text[:200])
+            return f"Request error: {err}"
+        else:
+            return f"API error ({resp.status_code}). Please try again."
 
-                if resp.status_code == 200:
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts and parts[0].get("text"):
-                            return parts[0]["text"]
-                    block_reason = data.get("promptFeedback", {}).get("blockReason", "")
-                    if block_reason:
-                        return f"Response blocked by safety filter ({block_reason}). Please rephrase your query."
-                    return "No response text received from Gemini. Please try again."
-
-                elif resp.status_code == 429:
-                    # Rate limited — wait and retry with backoff
-                    wait_secs = (2 ** attempt) * (model_idx + 1)  # 2s, 4s, 8s per model
-                    last_err = f"Rate limited on {model} (attempt {attempt+1})"
-                    if attempt < 2:
-                        _time.sleep(wait_secs)
-                        continue  # retry same model
-                    else:
-                        break  # try next model
-
-                elif resp.status_code in (404, 400):
-                    last_err = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
-                    break  # model not available, try next
-
-                elif resp.status_code in (401, 403):
-                    err_msg = resp.json().get("error", {}).get("message", "Forbidden")
-                    return (
-                        f"API key error ({resp.status_code}): {err_msg}. "
-                        "Check your GEMINI_API_KEY in Streamlit Secrets. "
-                        "Ensure the Generative Language API is enabled at "
-                        "console.cloud.google.com/apis."
-                    )
-
-                else:
-                    last_err = f"HTTP {resp.status_code}: {resp.text[:150]}"
-                    break
-
-            except _req.exceptions.Timeout:
-                last_err = "Request timed out"
-                if attempt < 2:
-                    _time.sleep(2)
-                    continue
-                break
-            except _req.exceptions.ConnectionError:
-                return "Cannot reach Google API. Please check your internet connection."
-            except Exception as e:
-                last_err = str(e)[:150]
-                break
-
-    # All models and retries exhausted
-    if "rate" in last_err.lower() or "429" in last_err or "quota" in last_err.lower():
-        return (
-            "The Gemini free tier rate limit has been reached (15 requests/minute). "
-            "Please wait 60 seconds and try again. "
-            "If this keeps happening, consider getting a paid Gemini API key."
-        )
-    return f"Gemini API error: {last_err}"
+    except _req.exceptions.Timeout:
+        return "Request timed out. Please try again."
+    except _req.exceptions.ConnectionError:
+        return "Cannot reach Anthropic API. Check internet connection."
+    except Exception as e:
+        return f"Unexpected error: {str(e)[:200]}"
 
 
 def load_ipc_data() -> pd.DataFrame:
@@ -433,7 +381,7 @@ with st.sidebar:
     # API status
     has_key = bool(get_api_key())
     if has_key:
-        st.markdown("🟢 **Gemini AI Connected**")
+        st.markdown("🟢 **Claude AI Connected**")
     else:
         st.markdown("🔴 **API Key Required**")
         with st.expander("Setup instructions"):
@@ -442,10 +390,10 @@ with st.sidebar:
 1. App → Settings → Secrets
 2. Add:
 ```
-GEMINI_API_KEY = "AIza..."
+ANTHROPIC_API_KEY = "sk-ant-..."
 ```
 **Get free key:**  
-[aistudio.google.com](https://aistudio.google.com/app/apikey)
+[console.anthropic.com](https://console.anthropic.com)
 """)
 
     st.divider()
@@ -506,7 +454,7 @@ GEMINI_API_KEY = "AIza..."
 
     st.divider()
     st.caption("⚖️ LexIPC v2.1 · Legal info only · Not legal advice")
-    st.caption("💡 Free tier: 15 req/min. If rate limited, wait ~60 sec.")
+    st.caption("💡 Powered by Claude AI (Anthropic)")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -523,11 +471,11 @@ ipc_badge = (
     'color:#f05050;border:1px solid rgba(240,80,80,0.4);margin:4px 4px 0 0">'
     '⚠ IPC CSV Missing</span>'
 )
-gemini_badge = (
+ai_badge = (
     '<span style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:0.75rem;'
     'font-family:IBM Plex Mono,monospace;background:rgba(82,196,130,0.15);'
     'color:#52c482;border:1px solid rgba(82,196,130,0.4);margin:4px 4px 0 0">'
-    '● Gemini AI (Free)</span>'
+    '● Claude AI</span>'
     if has_key else
     '<span style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:0.75rem;'
     'font-family:IBM Plex Mono,monospace;background:rgba(240,80,80,0.15);'
@@ -551,9 +499,9 @@ st.markdown(f"""
         ⚖️ Indian Criminal Law Research Assistant
     </div>
     <div style="color:#7a7a9a;font-size:0.88rem;margin-bottom:14px">
-        Powered by Google Gemini AI · IPC Sections Database · NCRB Crime Statistics 2023
+        Powered by Claude AI · IPC Sections Database · NCRB Crime Statistics 2023
     </div>
-    <div>{gemini_badge}{ipc_badge}{ncrb_badge}</div>
+    <div>{ai_badge}{ipc_badge}{ncrb_badge}</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -568,7 +516,7 @@ tab_ai, tab_ipc, tab_stats, tab_chat = st.tabs([
 # ════════════════════════════════════════
 with tab_ai:
     st.markdown("### Ask a Legal Question")
-    st.caption("Gemini AI answers with IPC section references. Scope: Indian criminal law only.")
+    st.caption("Claude AI answers with IPC section references. Scope: Indian criminal law only.")
 
     prefill_val = st.session_state.prefill_query
     st.session_state.prefill_query = ""
@@ -607,7 +555,7 @@ with tab_ai:
             if auto_ipc and not ipc_df.empty and is_criminal:
                 matched_df = search_ipc(query, ipc_df, top_n=6)
 
-            # Build Gemini prompt
+            # Build AI prompt
             ipc_ctx = ""
             if not matched_df.empty:
                 parts = [
@@ -624,7 +572,7 @@ with tab_ai:
             full_prompt = query + ipc_ctx + detail_note
 
             with st.spinner("Analysing legal provisions…"):
-                answer = call_gemini(full_prompt, system=LEGAL_SYSTEM)
+                answer = call_ai(full_prompt, system=LEGAL_SYSTEM)
 
             st.markdown(f'<div class="ai-box">{answer}</div>', unsafe_allow_html=True)
 
@@ -719,7 +667,7 @@ with tab_ipc:
                             "cognisable/non-cognisable, CrPC procedure, and BNS 2023 equivalent."
                         )
                         with st.spinner("Analysing…"):
-                            r_text = call_gemini(p, system=LEGAL_SYSTEM)
+                            r_text = call_ai(p, system=LEGAL_SYSTEM)
                         st.markdown(f'<div class="ai-box">{r_text}</div>', unsafe_allow_html=True)
 
 
@@ -841,7 +789,7 @@ with tab_chat:
         ]
 
         with st.spinner("Researching…"):
-            reply = call_gemini(chat_q.strip() + ctx, history=history_for_api, system=LEGAL_SYSTEM)
+            reply = call_ai(chat_q.strip() + ctx, history=history_for_api, system=LEGAL_SYSTEM)
 
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
         st.rerun()
