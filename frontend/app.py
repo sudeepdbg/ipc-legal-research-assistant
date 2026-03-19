@@ -1,231 +1,248 @@
 """
 ⚖️ LexIPC — Indian Criminal Law Research Assistant
-Single-file Streamlit app. No backend. No localhost.
-
-Uses google-generativeai SDK (official, handles all versioning).
-Fixes: 404 API error, </div> raw text in header, irrelevant search results.
+Single-file Streamlit app. Uses Groq API (free tier) for LLM responses.
+No backend server needed – everything runs in the cloud.
 """
 
 import streamlit as st
 import pandas as pd
 import re
+import requests
 from pathlib import Path
 
-# ── Page config ───────────────────────────────────────────────────────────────
+# ── Page configuration ───────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="LexIPC · Indian Criminal Law Research",
+    page_title="LexIPC · Indian Criminal Law",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# ── Custom CSS – professional, clean, legal‑themed ────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
-html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
-.stApp { background: #f5f3ef; color: #1a1a2e; }
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+.stApp { background: #f9f7f4; color: #1e293b; }
 
-/* ── Sidebar ── */
-[data-testid="stSidebar"] { background: #1a1a2e !important; border-right: 1px solid #2d2d4a; }
+/* ── Sidebar – dark, authoritative ── */
+[data-testid="stSidebar"] {
+    background: #0f172a !important;
+    border-right: 1px solid #334155;
+}
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] span,
-[data-testid="stSidebar"] div { color: #c0bdb0 !important; }
+[data-testid="stSidebar"] div { color: #cbd5e1; }
 [data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 { color: #e8c84a !important; font-family: 'Crimson Pro', serif !important; }
-[data-testid="stSidebar"] label { color: #7a7a9a !important; font-size: 0.8rem !important; }
-[data-testid="stSidebar"] input {
-    background: #252540 !important; border: 1px solid #3a3a5a !important;
-    color: #e0ddd5 !important; border-radius: 6px !important;
+[data-testid="stSidebar"] h3 {
+    color: #fbbf24 !important;
+    font-family: 'Merriweather', serif !important;
 }
 [data-testid="stSidebar"] .stButton > button {
-    background: #252540 !important; color: #c0b090 !important;
-    border: 1px solid #3a3a5a !important; border-radius: 6px !important;
-    text-align: left !important; padding: 9px 14px !important;
-    font-size: 0.83rem !important; width: 100% !important;
-    transition: all 0.15s !important; margin: 2px 0 !important;
+    background: #1e293b !important;
+    color: #fbbf24 !important;
+    border: 1px solid #334155 !important;
+    border-radius: 6px !important;
+    text-align: left !important;
+    padding: 8px 12px !important;
+    font-size: 0.85rem !important;
+    width: 100% !important;
+    transition: 0.1s ease;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
-    background: #2f2f55 !important; border-color: #e8c84a !important; color: #e8c84a !important;
+    background: #2d3a4f !important;
+    border-color: #fbbf24 !important;
 }
-[data-testid="stMetricValue"] { color: #e8c84a !important; font-family: 'Crimson Pro', serif !important; font-size: 1.8rem !important; }
-[data-testid="stMetricLabel"] { color: #7a7a9a !important; font-size: 0.78rem !important; }
+[data-testid="stSidebar"] input {
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    color: #e2e8f0 !important;
+    border-radius: 6px !important;
+}
+[data-testid="stSidebar"] label { color: #94a3b8 !important; font-size: 0.8rem; }
+
+/* ── Main area cards ── */
+.ipc-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-left: 6px solid #fbbf24;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+}
+.ipc-section-num {
+    font-family: 'Merriweather', serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+.ipc-offense {
+    font-size: 0.9rem;
+    color: #475569;
+    font-style: italic;
+    margin: 0.3rem 0 0.8rem;
+}
+.ipc-punish {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    background: #fee2e2;
+    color: #b91c1c;
+    padding: 0.2rem 0.8rem;
+    border-radius: 4px;
+    display: inline-block;
+    border: 1px solid #fecaca;
+}
+.ipc-desc {
+    font-size: 0.9rem;
+    color: #334155;
+    margin-top: 1rem;
+    line-height: 1.6;
+}
+
+/* ── AI answer box ── */
+.ai-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-top: 5px solid #fbbf24;
+    border-radius: 8px;
+    padding: 1.8rem 2rem;
+    margin: 1.5rem 0;
+    line-height: 1.8;
+    color: #1e293b;
+}
+
+/* ── Chat bubbles ── */
+.chat-user {
+    background: #1e293b;
+    color: #f8fafc;
+    border-radius: 12px 12px 4px 12px;
+    padding: 0.9rem 1.2rem;
+    margin-left: 40px;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+.chat-assistant {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #fbbf24;
+    border-radius: 4px 12px 12px 12px;
+    padding: 0.9rem 1.2rem;
+    margin-right: 40px;
+    font-size: 0.95rem;
+    line-height: 1.7;
+    color: #1e293b;
+}
+.chat-label {
+    font-size: 0.7rem;
+    color: #64748b;
+    margin: 0.8rem 0 0.2rem;
+    font-family: 'JetBrains Mono', monospace;
+}
 
 /* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
-    background: white; border-radius: 10px 10px 0 0;
-    border: 1px solid #e0ddd5; border-bottom: none; padding: 6px 6px 0; gap: 4px;
+    background: white;
+    border-radius: 8px 8px 0 0;
+    border: 1px solid #e2e8f0;
+    border-bottom: none;
+    padding: 0.5rem 0.5rem 0;
+    gap: 0.2rem;
 }
 .stTabs [data-baseweb="tab"] {
-    background: transparent; color: #6a6a8a;
-    font-family: 'IBM Plex Sans', sans-serif; font-size: 0.88rem; font-weight: 500;
-    border-radius: 8px 8px 0 0; padding: 10px 20px;
-    border: none; border-bottom: 3px solid transparent;
+    color: #64748b;
+    font-weight: 500;
+    font-size: 0.9rem;
+    padding: 0.6rem 1.2rem;
+    border-radius: 6px 6px 0 0;
 }
 .stTabs [aria-selected="true"] {
-    color: #1a1a2e !important; border-bottom: 3px solid #e8c84a !important;
-    font-weight: 600 !important; background: rgba(232,200,74,0.08) !important;
+    color: #0f172a !important;
+    border-bottom: 3px solid #fbbf24 !important;
+    background: rgba(251,191,36,0.05);
 }
 .stTabs [data-baseweb="tab-panel"] {
-    background: white; border: 1px solid #e0ddd5; border-top: none;
-    border-radius: 0 0 10px 10px; padding: 28px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    padding: 2rem;
 }
 
-/* ── Inputs & buttons ── */
-.stTextArea textarea, .stTextInput > div > div > input {
-    border: 1.5px solid #d0cec8 !important; border-radius: 8px !important;
-    font-family: 'IBM Plex Sans', sans-serif !important;
-    background: #fafaf8 !important; color: #1a1a2e !important;
+/* ── Metrics ── */
+[data-testid="stMetricValue"] {
+    color: #fbbf24 !important;
+    font-family: 'Merriweather', serif;
+    font-size: 2rem !important;
 }
-.stTextArea textarea:focus, .stTextInput > div > div > input:focus {
-    border-color: #e8c84a !important; box-shadow: 0 0 0 3px rgba(232,200,74,0.15) !important;
-}
-.stButton > button {
-    background: #1a1a2e !important; color: #e8c84a !important;
-    border: none !important; border-radius: 8px !important;
-    font-family: 'IBM Plex Sans', sans-serif !important; font-weight: 600 !important;
-    padding: 10px 24px !important; font-size: 0.9rem !important;
-    transition: all 0.2s !important;
-}
-.stButton > button:hover {
-    background: #2d2d50 !important; transform: translateY(-1px) !important;
-    box-shadow: 0 4px 12px rgba(26,26,46,0.3) !important;
-}
+[data-testid="stMetricLabel"] { color: #64748b !important; font-size: 0.8rem; }
 
-/* ── Cards ── */
-.ipc-card {
-    background: white; border: 1px solid #e0ddd5; border-left: 5px solid #e8c84a;
-    border-radius: 8px; padding: 18px 22px; margin: 10px 0;
-    box-shadow: 0 2px 8px rgba(26,26,46,0.04);
-}
-.ipc-section-num { font-family: 'Crimson Pro', serif; font-size: 1.3rem; color: #1a1a2e; font-weight: 700; }
-.ipc-offense { font-size: 0.9rem; color: #4a4a6a; font-style: italic; margin: 4px 0 8px; line-height: 1.5; }
-.ipc-punish {
-    font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: #c03030;
-    background: #fff0f0; padding: 3px 10px; border-radius: 4px; display: inline-block;
-    border: 1px solid rgba(192,48,48,0.2);
-}
-.ipc-desc { font-size: 0.85rem; color: #5a5a7a; margin-top: 10px; line-height: 1.65; }
-
-/* ── AI Answer ── */
-.ai-box {
-    background: #f8f7f3; border: 1px solid #e0ddd5; border-top: 4px solid #e8c84a;
-    border-radius: 8px; padding: 24px 28px; margin: 16px 0;
-    line-height: 1.8; color: #1a1a2e; font-size: 0.92rem;
-}
-
-/* ── Chat ── */
-.chat-you-label { text-align:right; font-size:0.73rem; color:#9090a8; margin: 12px 0 3px; font-family:'IBM Plex Mono',monospace; }
-.chat-bot-label  { font-size:0.73rem; color:#9090a8; margin: 12px 0 3px; font-family:'IBM Plex Mono',monospace; }
-.chat-user {
-    background: #1a1a2e; color: #e0ddd5; border-radius: 12px 12px 4px 12px;
-    padding: 14px 18px; margin-left: 60px; font-size: 0.9rem; line-height: 1.6;
-}
-.chat-assistant {
-    background: white; border: 1px solid #e0ddd5; border-left: 4px solid #e8c84a;
-    border-radius: 4px 12px 12px 12px; padding: 14px 18px; margin-right: 60px;
-    font-size: 0.9rem; line-height: 1.7; color: #1a1a2e;
-}
-
-/* ── Misc ── */
-hr { border-color: #e0ddd5; }
-div[data-testid="stExpander"] { border: 1px solid #e0ddd5 !important; border-radius: 8px !important; }
+hr { border-color: #e2e8f0; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Gemini via official SDK ───────────────────────────────────────────────────
+# ── Groq API integration ──────────────────────────────────────────────────────
 
 def get_api_key() -> str:
+    """Return Groq API key from Streamlit secrets or environment."""
     try:
-        k = st.secrets.get("ANTHROPIC_API_KEY", "")
-        if k:
-            return k
+        return st.secrets["GROQ_API_KEY"]
     except Exception:
-        pass
-    import os
-    return os.environ.get("ANTHROPIC_API_KEY", "")
-
+        import os
+        return os.environ.get("GROQ_API_KEY", "")
 
 def call_ai(prompt: str, history: list = None, system: str = "") -> str:
-    """
-    Call Claude (Anthropic) API via pure REST — no extra packages needed.
-    Uses claude-haiku-3-5 (fast, cheap, excellent for legal Q&A).
-    Falls back to claude-3-haiku if needed.
-    """
-    import requests as _req
-
+    """Call Groq's llama3-8b model with the given prompt and conversation history."""
     api_key = get_api_key()
     if not api_key:
-        return (
-            "API key not configured. "
-            "Go to Streamlit Cloud → App Settings → Secrets and add:\n"
-            "ANTHROPIC_API_KEY = sk-ant-...\n"
-            "Get a key at: console.anthropic.com"
-        )
+        return "⚠️ **GROQ_API_KEY not configured.**\n\nGet a free key at [console.groq.com](https://console.groq.com) and add it to Streamlit Secrets."
 
-    # Build messages array
     messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
     if history:
-        trimmed = history[-12:] if len(history) > 12 else history
-        for m in trimmed:
+        for m in history[-12:]:
             role = "assistant" if m["role"] == "assistant" else "user"
-            messages.append({"role": role, "content": str(m["content"])[:2000]})
-
+            messages.append({"role": role, "content": m["content"][:2000]})
     messages.append({"role": "user", "content": prompt})
 
     payload = {
-        "model": "claude-haiku-4-5",
-        "max_tokens": 1500,
+        "model": "llama3-8b-8192",      # fast, free, good for legal
         "messages": messages,
+        "max_tokens": 1500,
     }
-    if system:
-        payload["system"] = system
-
     headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
     }
 
     try:
-        resp = _req.post(
-            "https://api.anthropic.com/v1/messages",
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
             headers=headers,
             json=payload,
             timeout=60,
         )
         if resp.status_code == 200:
-            data = resp.json()
-            content = data.get("content", [])
-            if content and content[0].get("text"):
-                return content[0]["text"]
-            return "Empty response received. Please try again."
-
+            return resp.json()["choices"][0]["message"]["content"]
         elif resp.status_code == 401:
-            return (
-                "Invalid API key. Check your ANTHROPIC_API_KEY in "
-                "Streamlit Secrets (Settings → Secrets)."
-            )
+            return "🔐 Invalid API key. Please check your GROQ_API_KEY."
         elif resp.status_code == 429:
-            return (
-                "Rate limit reached. Please wait a moment and try again."
-            )
-        elif resp.status_code == 400:
-            err = resp.json().get("error", {}).get("message", resp.text[:200])
-            return f"Request error: {err}"
+            return "⏳ Rate limit reached. Please wait a moment and try again."
         else:
-            return f"API error ({resp.status_code}). Please try again."
-
-    except _req.exceptions.Timeout:
-        return "Request timed out. Please try again."
-    except _req.exceptions.ConnectionError:
-        return "Cannot reach Anthropic API. Check internet connection."
+            return f"❌ API error ({resp.status_code}): {resp.text[:200]}"
+    except requests.exceptions.Timeout:
+        return "⏱️ Request timed out. Please try again."
+    except requests.exceptions.ConnectionError:
+        return "🌐 Network error. Check your internet connection."
     except Exception as e:
-        return f"Unexpected error: {str(e)[:200]}"
+        return f"⚠️ Unexpected error: {str(e)}"
 
+
+# ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_ipc_data() -> pd.DataFrame:
     for p in ["ipc_sections.csv", "data/ipc_sections.csv"]:
@@ -234,7 +251,6 @@ def load_ipc_data() -> pd.DataFrame:
             df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
             return df
     return pd.DataFrame()
-
 
 @st.cache_data(show_spinner=False)
 def load_ncrb_data() -> pd.DataFrame:
@@ -245,52 +261,39 @@ def load_ncrb_data() -> pd.DataFrame:
             return df
     return pd.DataFrame()
 
-
 ipc_df  = load_ipc_data()
 ncrb_df = load_ncrb_data()
 
 
-# ── IPC search ────────────────────────────────────────────────────────────────
+# ── IPC search logic ──────────────────────────────────────────────────────────
 
-# Criminal law keywords — avoid matching civil/property queries
 CRIMINAL_KEYWORDS = {
-    "murder", "homicide", "manslaughter", "kidnapping", "abduction",
-    "robbery", "dacoity", "theft", "burglary", "extortion", "cheating",
-    "fraud", "forgery", "rape", "assault", "hurt", "grievous",
-    "obscene", "defamation", "sedition", "riot", "affray", "bribery",
-    "corruption", "trespass", "mischief", "arson", "poisoning", "dowry",
-    "cruelty", "stalking", "voyeurism", "acid", "terrorist", "waging",
-    "counterfeit", "coinage", "arms", "weapon", "culpable", "abetment",
-    "conspiracy", "attempt", "bail", "arrest", "custody", "remand",
-    "cognisable", "non-cognisable", "warrant", "summons", "trial",
-    "conviction", "sentence", "punishment", "fine", "imprisonment",
-    "life", "death", "sections", "ipc", "crpc", "bns", "criminal",
-    "offence", "offense", "penal", "code", "law", "legal", "court",
-    "accused", "victim", "complaint", "fir", "chargesheet", "evidence",
+    "murder", "homicide", "manslaughter", "kidnapping", "abduction", "robbery",
+    "dacoity", "theft", "extortion", "cheating", "fraud", "forgery", "rape",
+    "assault", "hurt", "grievous", "obscene", "defamation", "sedition", "riot",
+    "affray", "bribery", "corruption", "trespass", "mischief", "arson",
+    "poisoning", "dowry", "cruelty", "stalking", "voyeurism", "acid", "terrorist",
+    "waging", "counterfeit", "coinage", "arms", "weapon", "culpable", "abetment",
+    "conspiracy", "attempt", "bail", "arrest", "custody", "remand", "cognisable",
+    "non-cognisable", "warrant", "summons", "trial", "conviction", "sentence",
+    "punishment", "fine", "imprisonment", "life", "death", "sections", "ipc",
+    "crpc", "bns", "criminal", "offence", "offense", "penal", "code", "law",
+    "legal", "court", "accused", "victim", "complaint", "fir", "chargesheet",
+    "evidence",
 }
 
-
 def is_criminal_query(query: str) -> bool:
-    """Check if query is about criminal law (vs civil/property/family law)."""
     q_lower = query.lower()
-    # Check for IPC section numbers
     if re.search(r'\b(ipc|section|sec\.?)\s*\d+', q_lower):
         return True
-    # Check for criminal keywords
     words = set(re.findall(r'\b\w+\b', q_lower))
     return bool(words & CRIMINAL_KEYWORDS)
 
-
 def search_ipc(query: str, df: pd.DataFrame, top_n: int = 5) -> pd.DataFrame:
-    """
-    Smart IPC keyword search.
-    Returns empty DataFrame for clearly non-criminal queries (eviction, title suit etc.)
-    """
     if df.empty or not query.strip():
         return pd.DataFrame()
 
     q_lower = query.lower()
-    # Extract search terms — skip very short or common words
     stop = {"the", "a", "an", "in", "for", "is", "of", "to", "and", "or", "with",
             "that", "this", "it", "he", "she", "they", "have", "has", "had",
             "where", "what", "how", "who", "when", "which", "need", "find",
@@ -309,21 +312,17 @@ def search_ipc(query: str, df: pd.DataFrame, top_n: int = 5) -> pd.DataFrame:
             match = df[col].fillna("").str.lower().str.contains(term, regex=False)
             scores += match.astype(float) * weights.get(col, 1.0)
 
-    # Boost direct section number match (e.g. "302", "376")
     sec_match = re.search(r'\b(\d{2,3}[A-Z]?)\b', query.upper())
     if sec_match and "section" in df.columns:
         mask = df["section"].fillna("").str.upper().str.contains(sec_match.group(1), regex=False)
         scores[mask] += 20
 
-    # Minimum score threshold to avoid garbage results
     min_score = 2.0
     result = df[scores >= min_score].copy()
     if result.empty:
         return pd.DataFrame()
-
     result["_score"] = scores[scores >= min_score]
     return result.sort_values("_score", ascending=False).drop("_score", axis=1).head(top_n)
-
 
 def render_ipc_card(row: pd.Series):
     section = str(row.get("section", "N/A"))
@@ -356,10 +355,15 @@ def render_ipc_card(row: pd.Series):
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 
-LEGAL_SYSTEM = """You are LexIPC, an Indian criminal law assistant (IPC, CrPC, BNS, Evidence Act).
-Answer only criminal law questions. For civil matters (eviction, property, rent, divorce), say it is outside scope.
-Format: relevant sections → punishment (bailable/cognisable) → elements → landmark cases → BNS equivalent.
-Use **bold** for section numbers. End with: ⚠️ Legal information only, not legal advice."""
+LEGAL_SYSTEM = """You are LexIPC, an expert Indian criminal law assistant (IPC, CrPC, BNS, Evidence Act).
+Answer only criminal law questions. For civil matters (eviction, property, rent, divorce), politely say it is outside your scope.
+Format your answers with:
+- Relevant IPC sections in **bold**
+- Punishment, bailable/cognisable status
+- Essential ingredients of the offence
+- Landmark Supreme Court cases
+- BNS 2023 equivalent if applicable
+End with: ⚠️ Legal information only, not legal advice."""
 
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -370,53 +374,41 @@ if "prefill_query" not in st.session_state: st.session_state.prefill_query = ""
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("""
-    <div style="padding:4px 0 14px">
-        <div style="font-family:'Crimson Pro',serif;font-size:1.7rem;color:#e8c84a;font-weight:700;letter-spacing:-0.01em">
+    <div style="padding: 0 0 1rem;">
+        <div style="font-family: 'Merriweather', serif; font-size: 2rem; color: #fbbf24; font-weight: 700;">
             ⚖️ LexIPC
         </div>
-        <div style="font-size:0.78rem;color:#6a6a8a;margin-top:2px">Indian Criminal Law Research</div>
+        <div style="color: #94a3b8; font-size: 0.8rem; margin-top: -0.2rem;">Indian Criminal Law Research</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # API status
     has_key = bool(get_api_key())
     if has_key:
-        st.markdown("🟢 **Claude AI Connected**")
+        st.markdown("🟢 **Groq AI Connected**")
     else:
         st.markdown("🔴 **API Key Required**")
         with st.expander("Setup instructions"):
             st.markdown("""
-**Streamlit Cloud:**
-1. App → Settings → Secrets
-2. Add:
-```
-ANTHROPIC_API_KEY = "sk-ant-..."
-```
-**Get free key:**  
-[console.anthropic.com](https://console.anthropic.com)
+**Streamlit Cloud:**  
+1. Go to App → Settings → Secrets  
+2. Add:  
+
+**Get a free key:** [console.groq.com](https://console.groq.com)
 """)
 
     st.divider()
 
-    # Dataset stats
     st.markdown("**Dataset**")
     c1, c2 = st.columns(2)
     c1.metric("IPC Sections", len(ipc_df) if not ipc_df.empty else "—")
     c2.metric("NCRB Records", len(ncrb_df) if not ncrb_df.empty else "—")
-
     if ipc_df.empty:
         st.warning("Place `ipc_sections.csv` in the app folder.")
 
     st.divider()
 
-    # Quick section lookup
     st.markdown("**Quick Section Lookup**")
-    quick = st.text_input(
-        "sec_num",
-        placeholder="Type section number e.g. 302, 376, 420…",
-        key="quick_lookup",
-        label_visibility="collapsed"
-    )
+    quick = st.text_input("sec_num", placeholder="e.g. 302, 376, 420", label_visibility="collapsed")
     if quick.strip() and not ipc_df.empty:
         num = quick.strip().upper().lstrip("IPC_ ")
         mask = ipc_df["section"].fillna("").str.upper().str.contains(num, regex=False)
@@ -424,18 +416,16 @@ ANTHROPIC_API_KEY = "sk-ant-..."
         if not found.empty:
             r = found.iloc[0]
             st.markdown(f"""
-<div style="background:#252540;padding:12px 14px;border-left:3px solid #e8c84a;
-            border-radius:6px;margin:6px 0;font-size:0.82rem">
-    <b style="color:#e8c84a">{r.get('section','')}</b><br>
-    <span style="color:#a09888;font-style:italic">{str(r.get('offense',''))[:75]}…</span><br>
-    <code style="color:#f08080">{r.get('punishment','')}</code>
-</div>""", unsafe_allow_html=True)
+<div style="background:#1e293b; padding:0.8rem 1rem; border-left:3px solid #fbbf24; border-radius:6px;">
+    <b style="color:#fbbf24">{r.get('section','')}</b><br>
+    <span style="color:#94a3b8;">{str(r.get('offense',''))[:75]}…</span><br>
+    <code style="color:#f87171;">{r.get('punishment','')}</code>
+</div>
+""", unsafe_allow_html=True)
         else:
             st.caption(f"Section '{quick}' not found")
 
     st.divider()
-
-    # Common queries — explicit labels with proper button keys
     st.markdown("**Common Queries**")
     QUERIES = [
         ("Murder — IPC 302",            "What is IPC Section 302? Explain elements of murder, punishment, and key case laws like K.M. Nanavati v State."),
@@ -448,64 +438,46 @@ ANTHROPIC_API_KEY = "sk-ant-..."
         ("Rights at time of arrest",    "What are the legal rights of an arrested person under Article 22, Section 41 CrPC and D.K. Basu guidelines?"),
     ]
     for label, query_text in QUERIES:
-        if st.button(f"→ {label}", key=f"q_{hash(label) % 100000}", use_container_width=True):
+        if st.button(f"→ {label}", key=f"q_{hash(label)}", use_container_width=True):
             st.session_state.prefill_query = query_text
             st.rerun()
 
     st.divider()
-    st.caption("⚖️ LexIPC v2.1 · Legal info only · Not legal advice")
-    st.caption("💡 Powered by Claude AI (Anthropic)")
+    st.caption("⚖️ LexIPC v3.0 · Legal info only · Not legal advice")
+    st.caption("💡 Powered by Groq AI (llama3)")
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Main header ───────────────────────────────────────────────────────────────
 
-# ── Header (pure HTML — no stray </div> possible) ──
 ipc_badge = (
-    f'<span style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:0.75rem;'
-    f'font-family:IBM Plex Mono,monospace;background:rgba(232,200,74,0.15);'
-    f'color:#e8c84a;border:1px solid rgba(232,200,74,0.4);margin:4px 4px 0 0">'
-    f'📚 IPC Database ({len(ipc_df)} sections)</span>'
+    f'<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.3);">📚 IPC ({len(ipc_df)})</span>'
     if not ipc_df.empty else
-    '<span style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:0.75rem;'
-    'font-family:IBM Plex Mono,monospace;background:rgba(240,80,80,0.15);'
-    'color:#f05050;border:1px solid rgba(240,80,80,0.4);margin:4px 4px 0 0">'
-    '⚠ IPC CSV Missing</span>'
+    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">⚠ IPC CSV Missing</span>'
 )
 ai_badge = (
-    '<span style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:0.75rem;'
-    'font-family:IBM Plex Mono,monospace;background:rgba(82,196,130,0.15);'
-    'color:#52c482;border:1px solid rgba(82,196,130,0.4);margin:4px 4px 0 0">'
-    '● Claude AI</span>'
+    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.3);">● Groq AI</span>'
     if has_key else
-    '<span style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:0.75rem;'
-    'font-family:IBM Plex Mono,monospace;background:rgba(240,80,80,0.15);'
-    'color:#f05050;border:1px solid rgba(240,80,80,0.4);margin:4px 4px 0 0">'
-    '✗ API Key Required</span>'
+    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">✗ API Key Missing</span>'
 )
 ncrb_badge = (
-    '<span style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:0.75rem;'
-    'font-family:IBM Plex Mono,monospace;background:rgba(100,160,240,0.15);'
-    'color:#64a0f0;border:1px solid rgba(100,160,240,0.4);margin:4px 4px 0 0">'
-    '📊 NCRB 2023</span>'
+    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(59,130,246,0.12); color:#3b82f6; border:1px solid rgba(59,130,246,0.3);">📊 NCRB 2023</span>'
     if not ncrb_df.empty else ""
 )
 
 st.markdown(f"""
-<div style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);
-            border-radius:12px;padding:32px 36px;margin-bottom:24px;
-            border:1px solid #2d2d4a">
-    <div style="font-family:'Crimson Pro',serif;font-size:2.4rem;
-                color:#e8c84a;margin:0 0 6px;letter-spacing:-0.01em;font-weight:700">
+<div style="background:linear-gradient(145deg, #0f172a 0%, #1e293b 100%); border-radius:12px; padding:2.5rem 3rem; margin-bottom:2rem;">
+    <div style="font-family:'Merriweather',serif; font-size:2.5rem; color:#fbbf24; font-weight:700; line-height:1.2;">
         ⚖️ Indian Criminal Law Research Assistant
     </div>
-    <div style="color:#7a7a9a;font-size:0.88rem;margin-bottom:14px">
-        Powered by Claude AI · IPC Sections Database · NCRB Crime Statistics 2023
+    <div style="color:#94a3b8; font-size:0.9rem; margin:0.5rem 0 1rem;">
+        IPC sections · NCRB statistics · AI‑powered analysis
     </div>
-    <div>{ai_badge}{ipc_badge}{ncrb_badge}</div>
+    <div>{ai_badge} {ipc_badge} {ncrb_badge}</div>
 </div>
 """, unsafe_allow_html=True)
 
-# ── Tabs ──
+
+# ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_ai, tab_ipc, tab_stats, tab_chat = st.tabs([
     "🔬 AI Research", "📚 IPC Sections", "📊 Crime Statistics", "💬 Legal Chat"
 ])
@@ -516,59 +488,43 @@ tab_ai, tab_ipc, tab_stats, tab_chat = st.tabs([
 # ════════════════════════════════════════
 with tab_ai:
     st.markdown("### Ask a Legal Question")
-    st.caption("Claude AI answers with IPC section references. Scope: Indian criminal law only.")
+    st.caption("Groq AI answers with IPC section references. Scope: Indian criminal law only.")
 
-    prefill_val = st.session_state.prefill_query
+    prefill = st.session_state.prefill_query
     st.session_state.prefill_query = ""
 
     query = st.text_area(
         "Legal query",
-        value=prefill_val,
-        height=130,
-        placeholder=(
-            "Examples:\n"
-            "• What is punishment for murder under IPC?\n"
-            "• Explain bail conditions for rape accused\n"
-            "• What sections apply to cybercrime and online fraud?"
-        ),
+        value=prefill,
+        height=120,
+        placeholder="Examples:\n• What is punishment for murder under IPC?\n• Explain bail conditions for rape accused",
         key="research_query",
         label_visibility="collapsed"
     )
 
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
-        analyse_btn = st.button("⚖️ Analyse Query", type="primary", use_container_width=True)
+        analyse = st.button("⚖️ Analyse Query", type="primary", use_container_width=True)
     with c2:
-        auto_ipc = st.toggle("Auto-match IPC sections", value=True)
+        auto_ipc = st.toggle("Auto-match IPC", value=True)
     with c3:
         detailed = st.toggle("Detailed analysis", value=False)
 
-    if analyse_btn:
+    if analyse:
         if not query.strip():
             st.warning("Please enter a legal query.")
         else:
-            # Check if query is criminal law
             is_criminal = is_criminal_query(query)
-
-            # Search IPC sections
             matched_df = pd.DataFrame()
             if auto_ipc and not ipc_df.empty and is_criminal:
                 matched_df = search_ipc(query, ipc_df, top_n=6)
 
-            # Build AI prompt
             ipc_ctx = ""
             if not matched_df.empty:
-                parts = [
-                    f"{r.get('section','')}: {r.get('offense','')} | Punishment: {r.get('punishment','')}"
-                    for _, r in matched_df.iterrows()
-                ]
-                ipc_ctx = "\n\n[Relevant IPC sections from database:\n" + "\n".join(parts) + "]"
+                parts = [f"{r['section']}: {r['offense']} | Punishment: {r['punishment']}" for _, r in matched_df.iterrows()]
+                ipc_ctx = "\n\n[Relevant IPC sections:\n" + "\n".join(parts) + "]"
 
-            detail_note = (
-                " Provide comprehensive analysis with case laws, procedural details, and sub-sections."
-                if detailed else " Keep response focused and concise (under 500 words)."
-            )
-
+            detail_note = " Provide comprehensive analysis with case laws, procedural details, and sub‑sections." if detailed else " Keep response concise (under 500 words)."
             full_prompt = query + ipc_ctx + detail_note
 
             with st.spinner("Analysing legal provisions…"):
@@ -581,14 +537,10 @@ with tab_ai:
                 for _, row in matched_df.iterrows():
                     render_ipc_card(row)
             elif auto_ipc and not is_criminal:
-                st.info(
-                    "ℹ️ No IPC sections matched — this appears to be a civil/property law query. "
-                    "LexIPC specialises in criminal law (IPC/CrPC/BNS)."
-                )
+                st.info("ℹ️ No IPC sections matched – this appears to be a civil/property law query. LexIPC specialises in criminal law.")
 
-            # Save to chat history
             st.session_state.chat_history.extend([
-                {"role": "user",      "content": query},
+                {"role": "user", "content": query},
                 {"role": "assistant", "content": answer},
             ])
 
@@ -597,46 +549,29 @@ with tab_ai:
 # TAB 2 — IPC SECTIONS BROWSER
 # ════════════════════════════════════════
 with tab_ipc:
-    st.markdown("### IPC Sections Database")
-
     if ipc_df.empty:
-        st.error("⚠️ `ipc_sections.csv` not found. Place it in the same folder as `app.py`.")
+        st.error("⚠️ `ipc_sections.csv` not found. Please upload it.")
     else:
+        st.markdown("### IPC Sections Database")
         s1, s2, s3 = st.columns([4, 1, 1])
         with s1:
-            sec_q = st.text_input(
-                "Search",
-                placeholder="Search by keyword or section number (e.g. murder, 302, theft, rape)…",
-                key="ipc_search",
-                label_visibility="collapsed"
-            )
+            sec_q = st.text_input("Search", placeholder="Keyword or section number…", key="ipc_search", label_visibility="collapsed")
         with s2:
             show_n = st.selectbox("Show", [10, 25, 50, 100], index=0, label_visibility="collapsed")
         with s3:
-            view = st.radio("View", ["Cards", "Table"], horizontal=False, label_visibility="collapsed")
+            view = st.radio("View", ["Cards", "Table"], horizontal=True, label_visibility="collapsed")
 
-        punish_q = st.text_input(
-            "Punishment filter",
-            placeholder="Filter by punishment type (e.g. death, life, fine)…",
-            key="punish_f",
-            label_visibility="collapsed"
-        )
-
-        if sec_q.strip():
+        if sec_q:
             results = search_ipc(sec_q, ipc_df, top_n=show_n)
             if results.empty:
-                # Fallback: simple contains search
+                # fallback to simple contains
                 mask = pd.Series(False, index=ipc_df.index)
-                for col in [c for c in ["offense", "section", "description"] if c in ipc_df.columns]:
-                    mask |= ipc_df[col].fillna("").str.lower().str.contains(sec_q.lower(), regex=False)
+                for col in ["offense", "section", "description"]:
+                    if col in ipc_df:
+                        mask |= ipc_df[col].fillna("").str.lower().str.contains(sec_q.lower(), regex=False)
                 results = ipc_df[mask].head(show_n)
         else:
             results = ipc_df.head(show_n)
-
-        if punish_q.strip() and "punishment" in results.columns:
-            results = results[
-                results["punishment"].fillna("").str.lower().str.contains(punish_q.lower(), regex=False)
-            ]
 
         st.caption(f"Showing **{len(results)}** sections")
 
@@ -644,28 +579,22 @@ with tab_ipc:
             for _, row in results.iterrows():
                 render_ipc_card(row)
         else:
-            disp = [c for c in ["section", "offense", "punishment"] if c in results.columns]
-            st.dataframe(results[disp], use_container_width=True, height=500, hide_index=True)
+            cols = [c for c in ["section", "offense", "punishment"] if c in results.columns]
+            st.dataframe(results[cols], use_container_width=True, height=500, hide_index=True)
 
         # Full detail view
         if not results.empty and "section" in results.columns:
             st.divider()
-            chosen = st.selectbox("View full text for:", results["section"].tolist(), key="detail_sel")
+            chosen = st.selectbox("View full description for:", results["section"].tolist(), key="detail_sel")
             if chosen:
                 row = results[results["section"] == chosen].iloc[0]
-                with st.expander(f"📄 {chosen} — Full Description", expanded=True):
+                with st.expander(f"📄 {chosen} — Full Text", expanded=True):
                     st.markdown(f"**Offense:** {row.get('offense','—')}")
                     st.markdown(f"**Punishment:** `{row.get('punishment','—')}`")
                     st.divider()
                     st.markdown(str(row.get("description", "No description available.")))
-
                     if st.button(f"🤖 AI Analysis of {chosen}", key=f"ai_{chosen}"):
-                        p = (
-                            f"Provide a detailed legal analysis of {chosen} IPC. "
-                            f"Offense: {row.get('offense','')}. Punishment: {row.get('punishment','')}. "
-                            "Include: all elements, landmark Supreme Court cases, bailable/non-bailable, "
-                            "cognisable/non-cognisable, CrPC procedure, and BNS 2023 equivalent."
-                        )
+                        p = f"Provide a detailed legal analysis of {chosen} IPC. Offense: {row.get('offense','')}. Punishment: {row.get('punishment','')}. Include all elements, landmark cases, bailable/cognisable, CrPC procedure, and BNS 2023 equivalent."
                         with st.spinner("Analysing…"):
                             r_text = call_ai(p, system=LEGAL_SYSTEM)
                         st.markdown(f'<div class="ai-box">{r_text}</div>', unsafe_allow_html=True)
@@ -678,13 +607,7 @@ with tab_stats:
     st.markdown("### Crime Statistics — NCRB 2023")
     if ncrb_df.empty:
         st.info("Place `NCRB_CII_2023_Table_18A_2_0.csv` in the app folder to enable charts.")
-        st.markdown("""
-**Once loaded, this tab shows:**
-- Crime incidence by State/UT  
-- Category-wise distribution  
-- Interactive charts with filters  
-- CSV export
-        """)
+        st.markdown("**Once loaded, this tab shows:** crime incidence by State/UT, interactive charts, and export.")
     else:
         st.caption(f"Source: NCRB Crime in India 2023 · {len(ncrb_df):,} records")
         try:
@@ -698,36 +621,33 @@ with tab_stats:
 
             if num_cols and cat_cols:
                 r1, r2, r3 = st.columns(3)
-                x_col   = r1.selectbox("Category", cat_cols, key="nx")
-                y_col   = r2.selectbox("Metric",   num_cols, key="ny")
-                top_n   = r3.slider("Top N", 5, 30, 15, key="nn")
-                ctype   = st.radio("Chart", ["Bar","Horizontal Bar","Pie","Treemap"], horizontal=True)
+                x_col = r1.selectbox("Category", cat_cols, key="nx")
+                y_col = r2.selectbox("Metric", num_cols, key="ny")
+                top_n = r3.slider("Top N", 5, 30, 15, key="nn")
+                ctype = st.radio("Chart", ["Bar", "Horizontal Bar", "Pie", "Treemap"], horizontal=True)
 
-                cdf = (ncrb_df.groupby(x_col)[y_col].sum().reset_index()
-                       .sort_values(y_col, ascending=False).head(top_n))
-                cs  = [[0,"#1a1a2e"],[0.5,"#8b6914"],[1,"#e8c84a"]]
+                cdf = (ncrb_df.groupby(x_col)[y_col].sum().reset_index().sort_values(y_col, ascending=False).head(top_n))
+                cs = [[0, "#0f172a"], [0.5, "#b45309"], [1, "#fbbf24"]]
 
                 if ctype == "Bar":
                     fig = px.bar(cdf, x=x_col, y=y_col, color=y_col, color_continuous_scale=cs)
                     fig.update_xaxes(tickangle=-45)
                 elif ctype == "Horizontal Bar":
-                    fig = px.bar(cdf.sort_values(y_col), x=y_col, y=x_col,
-                                 orientation="h", color=y_col, color_continuous_scale=cs)
+                    fig = px.bar(cdf.sort_values(y_col), x=y_col, y=x_col, orientation="h", color=y_col, color_continuous_scale=cs)
                 elif ctype == "Pie":
-                    fig = px.pie(cdf, names=x_col, values=y_col, hole=0.4,
-                                 color_discrete_sequence=px.colors.sequential.YlOrBr_r)
+                    fig = px.pie(cdf, names=x_col, values=y_col, hole=0.4, color_discrete_sequence=px.colors.sequential.YlOrBr_r)
                 else:
-                    fig = px.treemap(cdf, path=[x_col], values=y_col,
-                                     color=y_col, color_continuous_scale=cs)
+                    fig = px.treemap(cdf, path=[x_col], values=y_col, color=y_col, color_continuous_scale=cs)
 
                 fig.update_layout(
-                    paper_bgcolor="white", plot_bgcolor="white",
-                    font=dict(family="IBM Plex Sans", color="#1a1a2e"),
-                    coloraxis_showscale=False, margin=dict(t=50,l=20,r=20,b=60),
+                    paper_bgcolor="white",
+                    plot_bgcolor="white",
+                    font=dict(family="Inter", color="#1e293b"),
+                    coloraxis_showscale=False,
+                    margin=dict(t=50, l=20, r=20, b=60),
                 )
                 st.plotly_chart(fig, use_container_width=True)
-                st.download_button("📥 Download CSV", cdf.to_csv(index=False),
-                                   "ncrb_data.csv", "text/csv")
+                st.download_button("📥 Download CSV", cdf.to_csv(index=False), "ncrb_data.csv", "text/csv")
         except ImportError:
             st.dataframe(ncrb_df, use_container_width=True)
 
@@ -739,58 +659,38 @@ with tab_chat:
     st.markdown("### Legal Research Chat")
     st.caption("Full conversation history maintained during your session.")
 
-    # Render history
     if not st.session_state.chat_history:
         st.markdown("""
-<div style="text-align:center;padding:56px 24px;color:#9090a8">
-    <div style="font-size:3rem">⚖️</div>
-    <p style="margin-top:10px;font-size:1rem;color:#6a6a8a">Start a legal research conversation</p>
-    <p style="font-size:0.85rem">Ask about IPC sections, bail, criminal procedure, case laws…</p>
+<div style="text-align:center; padding:4rem 2rem; color:#94a3b8;">
+    <div style="font-size:4rem;">⚖️</div>
+    <p style="margin-top:1rem; font-size:1.1rem; color:#64748b;">Start a legal research conversation</p>
+    <p style="font-size:0.9rem;">Ask about IPC sections, bail, criminal procedure, case laws…</p>
 </div>""", unsafe_allow_html=True)
     else:
         for msg in st.session_state.chat_history:
             if msg["role"] == "user":
-                st.markdown('<div class="chat-you-label">YOU</div>', unsafe_allow_html=True)
+                st.markdown('<div class="chat-label" style="text-align:right;">YOU</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="chat-user">{msg["content"]}</div>', unsafe_allow_html=True)
             else:
-                st.markdown('<div class="chat-bot-label">⚖ LEXIPC</div>', unsafe_allow_html=True)
+                st.markdown('<div class="chat-label">⚖️ LEXIPC</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="chat-assistant">{msg["content"]}</div>', unsafe_allow_html=True)
 
     st.divider()
-    chat_q = st.text_area(
-        "chat_input",
-        height=100,
-        placeholder="Ask about any IPC section, offence, bail procedure, rights, case law…",
-        key="chat_inp",
-        label_visibility="collapsed"
-    )
-
+    chat_q = st.text_area("chat_input", height=100, placeholder="Ask about any IPC section, offence, bail procedure…", key="chat_inp", label_visibility="collapsed")
     b1, b2 = st.columns([1, 5])
-    send  = b1.button("Send →", type="primary", key="send_chat", use_container_width=True)
-    clear = b1.button("🗑 Clear",               key="clear_chat", use_container_width=True)
+    send = b1.button("Send →", type="primary", key="send_chat", use_container_width=True)
+    clear = b1.button("🗑 Clear", key="clear_chat", use_container_width=True)
 
     if send and chat_q.strip():
-        # IPC context
         ctx = ""
         if not ipc_df.empty:
             m = search_ipc(chat_q, ipc_df, top_n=3)
             if not m.empty:
-                ctx = " [Relevant sections: " + "; ".join(
-                    f"{r.get('section','')}: {str(r.get('offense',''))[:50]}"
-                    for _, r in m.iterrows()
-                ) + "]"
-
+                ctx = " [Relevant sections: " + "; ".join(f"{r['section']}: {str(r['offense'])[:50]}" for _, r in m.iterrows()) + "]"
         st.session_state.chat_history.append({"role": "user", "content": chat_q.strip()})
-
-        # Build history for multi-turn
-        history_for_api = [
-            {"role": "model" if m["role"] == "assistant" else "user", "content": m["content"]}
-            for m in st.session_state.chat_history[:-1]
-        ]
-
+        history_for_api = [{"role": "model" if m["role"] == "assistant" else "user", "content": m["content"]} for m in st.session_state.chat_history[:-1]]
         with st.spinner("Researching…"):
             reply = call_ai(chat_q.strip() + ctx, history=history_for_api, system=LEGAL_SYSTEM)
-
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
         st.rerun()
 
@@ -801,8 +701,7 @@ with tab_chat:
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="text-align:center;padding:20px;color:#9090a8;font-size:0.76rem;
-            font-family:'IBM Plex Mono',monospace;border-top:1px solid #e0ddd5;margin-top:28px">
+<div style="text-align:center; padding:2rem; color:#94a3b8; font-size:0.75rem; border-top:1px solid #e2e8f0; margin-top:2rem;">
     ⚖️ LexIPC · Indian Criminal Law Research · For informational purposes only · Not legal advice
 </div>
 """, unsafe_allow_html=True)
