@@ -151,39 +151,50 @@ def get_api_key() -> str:
 
 def call_gemini(prompt: str, history: list = None, system: str = "") -> str:
     """
-    Call Google Gemini via pure REST API (requests only — no extra packages).
-    Uses v1beta endpoint with system_instruction support.
-    Tries: gemini-1.5-flash → gemini-2.0-flash → gemini-1.5-flash-8b
-    All are free tier models.
+    Call Google Gemini via pure REST (requests only — no extra packages).
+    - Uses v1beta endpoint with correct system_instruction format
+    - Retries with exponential backoff on 429 rate limit
+    - Tries multiple free-tier models: flash → 2.0-flash → flash-8b
+    - Truncates history to last 6 messages to stay within token limits
     """
     import requests as _req
+    import time as _time
 
     api_key = get_api_key()
     if not api_key:
         return (
             "API key not configured. "
-            "Go to Settings → Secrets and add: GEMINI_API_KEY = your_key_here. "
-            "Get a free key at aistudio.google.com/app/apikey"
+            "Go to Streamlit Cloud → Settings → Secrets and add:\n"
+            "GEMINI_API_KEY = your_key_here\n"
+            "Get a free key at: aistudio.google.com/app/apikey"
         )
 
-    # Models to try in order (all free tier, v1beta endpoint)
-    models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-8b"]
+    # Free tier models — each has its own separate quota (15 RPM each)
+    # Trying all 3 gives us 3x more effective rate limit
+    models = [
+        "gemini-1.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-8b",
+    ]
 
-    # Build contents array — roles must be "user" or "model" (not "assistant")
+    # Build contents — keep last 6 messages to reduce token usage
     contents = []
     if history:
-        for m in history:
+        # Trim history: keep last 6 exchanges (12 messages max)
+        trimmed = history[-12:] if len(history) > 12 else history
+        for m in trimmed:
             role = "model" if m["role"] == "assistant" else "user"
-            contents.append({"role": role, "parts": [{"text": m["content"]}]})
-    # Add current prompt as last user message
+            contents.append({"role": role, "parts": [{"text": m["content"][:1500]}]})
+
+    # Always append current prompt as final user message
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-    # Payload — system_instruction is a TOP-LEVEL field (not inside contents)
+    # Build payload — system_instruction is TOP-LEVEL (not inside contents)
     payload = {
         "contents": contents,
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 2048,
+            "maxOutputTokens": 1500,
         },
         "safetySettings": [
             {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_ONLY_HIGH"},
@@ -195,59 +206,79 @@ def call_gemini(prompt: str, history: list = None, system: str = "") -> str:
         payload["system_instruction"] = {"parts": [{"text": system}]}
 
     last_err = ""
-    for model in models:
+
+    for model_idx, model in enumerate(models):
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{model}:generateContent?key={api_key}"
         )
-        try:
-            resp = _req.post(url, json=payload, timeout=60)
 
-            if resp.status_code == 200:
-                data = resp.json()
-                candidates = data.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts and parts[0].get("text"):
-                        return parts[0]["text"]
-                # Check for safety block
-                if data.get("promptFeedback", {}).get("blockReason"):
-                    return "Response blocked by safety filter. Please rephrase your query."
-                return "No response text received from Gemini."
+        # Retry up to 3 times per model with exponential backoff
+        for attempt in range(3):
+            try:
+                resp = _req.post(url, json=payload, timeout=60)
 
-            elif resp.status_code in (404, 400):
-                last_err = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
-                continue  # try next model
+                if resp.status_code == 200:
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts and parts[0].get("text"):
+                            return parts[0]["text"]
+                    block_reason = data.get("promptFeedback", {}).get("blockReason", "")
+                    if block_reason:
+                        return f"Response blocked by safety filter ({block_reason}). Please rephrase your query."
+                    return "No response text received from Gemini. Please try again."
 
-            elif resp.status_code == 401 or resp.status_code == 403:
-                err = resp.json().get("error", {}).get("message", "Forbidden")
-                return (
-                    f"API key error ({resp.status_code}): {err}. "
-                    "Check your GEMINI_API_KEY in Streamlit Secrets and ensure "
-                    "the Generative Language API is enabled in Google Cloud Console."
-                )
+                elif resp.status_code == 429:
+                    # Rate limited — wait and retry with backoff
+                    wait_secs = (2 ** attempt) * (model_idx + 1)  # 2s, 4s, 8s per model
+                    last_err = f"Rate limited on {model} (attempt {attempt+1})"
+                    if attempt < 2:
+                        _time.sleep(wait_secs)
+                        continue  # retry same model
+                    else:
+                        break  # try next model
 
-            elif resp.status_code == 429:
-                return "Rate limit reached. Please wait a moment and try again."
+                elif resp.status_code in (404, 400):
+                    last_err = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
+                    break  # model not available, try next
 
-            else:
-                last_err = f"HTTP {resp.status_code}: {resp.text[:200]}"
-                continue
+                elif resp.status_code in (401, 403):
+                    err_msg = resp.json().get("error", {}).get("message", "Forbidden")
+                    return (
+                        f"API key error ({resp.status_code}): {err_msg}. "
+                        "Check your GEMINI_API_KEY in Streamlit Secrets. "
+                        "Ensure the Generative Language API is enabled at "
+                        "console.cloud.google.com/apis."
+                    )
 
-        except _req.exceptions.Timeout:
-            return "Request timed out. Please try again."
-        except _req.exceptions.ConnectionError:
-            return "Cannot reach Google API. Check internet connection."
-        except Exception as e:
-            last_err = str(e)
-            continue
+                else:
+                    last_err = f"HTTP {resp.status_code}: {resp.text[:150]}"
+                    break
 
-    return f"All Gemini models failed. Last error: {last_err}"
+            except _req.exceptions.Timeout:
+                last_err = "Request timed out"
+                if attempt < 2:
+                    _time.sleep(2)
+                    continue
+                break
+            except _req.exceptions.ConnectionError:
+                return "Cannot reach Google API. Please check your internet connection."
+            except Exception as e:
+                last_err = str(e)[:150]
+                break
+
+    # All models and retries exhausted
+    if "rate" in last_err.lower() or "429" in last_err or "quota" in last_err.lower():
+        return (
+            "The Gemini free tier rate limit has been reached (15 requests/minute). "
+            "Please wait 60 seconds and try again. "
+            "If this keeps happening, consider getting a paid Gemini API key."
+        )
+    return f"Gemini API error: {last_err}"
 
 
-# ── Data loading ──────────────────────────────────────────────────────────────
-
-@st.cache_data(show_spinner=False)
 def load_ipc_data() -> pd.DataFrame:
     for p in ["ipc_sections.csv", "data/ipc_sections.csv"]:
         if Path(p).exists():
@@ -377,25 +408,10 @@ def render_ipc_card(row: pd.Series):
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 
-LEGAL_SYSTEM = """You are LexIPC, an expert Indian criminal law research assistant.
-You specialise in: Indian Penal Code (IPC), Code of Criminal Procedure (CrPC), Indian Evidence Act,
-Bharatiya Nyaya Sanhita 2023 (BNS), and related Indian criminal legislation.
-
-IMPORTANT SCOPE RULE:
-- You only answer questions about CRIMINAL law (IPC, CrPC, BNS, criminal procedure, bail, arrest, trial).
-- If asked about civil law (eviction, title suits, property disputes, rent, divorce, contract), 
-  politely clarify this is outside your scope and suggest they consult the relevant act 
-  (Transfer of Property Act, CPC, Rent Control Acts, etc.).
-
-Response format:
-1. Identify the relevant IPC/BNS sections with exact numbers
-2. State punishment (imprisonment, fine, bailable/non-bailable, cognisable/non-cognisable)
-3. Key elements that must be proven
-4. Landmark case laws (Supreme Court / High Court)
-5. BNS 2023 equivalent if applicable
-6. ⚠️ Always end with: "This is legal information, not legal advice. Consult a qualified advocate."
-
-Use **bold** for section numbers. Keep answers focused and accurate."""
+LEGAL_SYSTEM = """You are LexIPC, an Indian criminal law assistant (IPC, CrPC, BNS, Evidence Act).
+Answer only criminal law questions. For civil matters (eviction, property, rent, divorce), say it is outside scope.
+Format: relevant sections → punishment (bailable/cognisable) → elements → landmark cases → BNS equivalent.
+Use **bold** for section numbers. End with: ⚠️ Legal information only, not legal advice."""
 
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -490,6 +506,7 @@ GEMINI_API_KEY = "AIza..."
 
     st.divider()
     st.caption("⚖️ LexIPC v2.1 · Legal info only · Not legal advice")
+    st.caption("💡 Free tier: 15 req/min. If rate limited, wait ~60 sec.")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
