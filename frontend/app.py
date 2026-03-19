@@ -1,7 +1,7 @@
 """
-⚖️ IPC — Indian Legal Research Assistant (Criminal & Civil)
-
-
+⚖️ LexIPC — Indian Legal Research Assistant (Criminal & Civil)
+Single-file Streamlit app. Uses Groq API (free tier) for LLM responses.
+No backend server needed – everything runs in the cloud.
 """
 
 import streamlit as st
@@ -12,33 +12,41 @@ from pathlib import Path
 
 # ── Page configuration ───────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="IPC · Indian Legal Research",
+    page_title="LexIPC · Indian Legal Research",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS – professional, clean, legal‑themed ────────────────────────────
+# ── Professional Custom CSS – clean, modern, legal‑themed ─────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.stApp { background: #f9f7f4; color: #1e293b; }
+/* Reset & base */
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+    color: #1e293b;
+}
+.stApp {
+    background: #f8fafc;
+}
 
-/* ── Sidebar – dark, authoritative ── */
+/* ── Sidebar – authoritative navy ── */
 [data-testid="stSidebar"] {
     background: #0f172a !important;
     border-right: 1px solid #334155;
 }
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] span,
-[data-testid="stSidebar"] div { color: #cbd5e1; }
+[data-testid="stSidebar"] * {
+    color: #e2e8f0 !important;
+}
 [data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3 {
     color: #fbbf24 !important;
     font-family: 'Merriweather', serif !important;
+    font-weight: 700;
+    letter-spacing: -0.02em;
 }
 [data-testid="stSidebar"] .stButton > button {
     background: #1e293b !important;
@@ -46,10 +54,10 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     border: 1px solid #334155 !important;
     border-radius: 6px !important;
     text-align: left !important;
-    padding: 8px 12px !important;
+    padding: 0.6rem 1rem !important;
     font-size: 0.85rem !important;
     width: 100% !important;
-    transition: 0.1s ease;
+    transition: all 0.1s ease;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
     background: #2d3a4f !important;
@@ -61,17 +69,71 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     color: #e2e8f0 !important;
     border-radius: 6px !important;
 }
-[data-testid="stSidebar"] label { color: #94a3b8 !important; font-size: 0.8rem; }
+[data-testid="stSidebar"] label {
+    color: #94a3b8 !important;
+    font-size: 0.8rem;
+}
 
-/* ── Main area cards ── */
+/* ── Main header – gradient card ── */
+.header-card {
+    background: linear-gradient(145deg, #0f172a 0%, #1e293b 100%);
+    border-radius: 16px;
+    padding: 2.5rem 3rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.02);
+}
+.header-title {
+    font-family: 'Merriweather', serif;
+    font-size: 2.5rem;
+    color: #fbbf24;
+    font-weight: 700;
+    line-height: 1.2;
+}
+.header-subtitle {
+    color: #94a3b8;
+    font-size: 0.9rem;
+    margin: 0.5rem 0 1rem;
+}
+.badge {
+    display: inline-block;
+    padding: 0.3rem 0.9rem;
+    border-radius: 30px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-right: 0.5rem;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #cbd5e1;
+}
+.badge-active {
+    background: rgba(34,197,94,0.1);
+    color: #22c55e;
+    border-color: rgba(34,197,94,0.3);
+}
+.badge-ipc {
+    background: rgba(251,191,36,0.1);
+    color: #fbbf24;
+    border-color: rgba(251,191,36,0.3);
+}
+.badge-ncrb {
+    background: rgba(59,130,246,0.1);
+    color: #3b82f6;
+    border-color: rgba(59,130,246,0.3);
+}
+
+/* ── IPC Cards ── */
 .ipc-card {
     background: white;
     border: 1px solid #e2e8f0;
     border-left: 6px solid #fbbf24;
-    border-radius: 8px;
+    border-radius: 10px;
     padding: 1.5rem;
     margin: 1rem 0;
     box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+    transition: box-shadow 0.2s;
+}
+.ipc-card:hover {
+    box-shadow: 0 8px 24px rgba(0,0,0,0.05);
 }
 .ipc-section-num {
     font-family: 'Merriweather', serif;
@@ -91,7 +153,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     background: #fee2e2;
     color: #b91c1c;
     padding: 0.2rem 0.8rem;
-    border-radius: 4px;
+    border-radius: 20px;
     display: inline-block;
     border: 1px solid #fecaca;
 }
@@ -104,48 +166,53 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
 /* ── AI answer box ── */
 .ai-box {
-    background: #f8fafc;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-top: 5px solid #fbbf24;
-    border-radius: 8px;
-    padding: 1.8rem 2rem;
+    border-top: 6px solid #fbbf24;
+    border-radius: 12px;
+    padding: 2rem 2.5rem;
     margin: 1.5rem 0;
     line-height: 1.8;
     color: #1e293b;
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
 }
 
 /* ── Chat bubbles ── */
 .chat-user {
     background: #1e293b;
     color: #f8fafc;
-    border-radius: 12px 12px 4px 12px;
+    border-radius: 18px 18px 6px 18px;
     padding: 0.9rem 1.2rem;
     margin-left: 40px;
     font-size: 0.95rem;
     line-height: 1.6;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.05);
 }
 .chat-assistant {
     background: white;
     border: 1px solid #e2e8f0;
     border-left: 4px solid #fbbf24;
-    border-radius: 4px 12px 12px 12px;
+    border-radius: 6px 18px 18px 18px;
     padding: 0.9rem 1.2rem;
     margin-right: 40px;
     font-size: 0.95rem;
     line-height: 1.7;
     color: #1e293b;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.02);
 }
 .chat-label {
     font-size: 0.7rem;
     color: #64748b;
     margin: 0.8rem 0 0.2rem;
     font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
 }
 
 /* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
     background: white;
-    border-radius: 8px 8px 0 0;
+    border-radius: 12px 12px 0 0;
     border: 1px solid #e2e8f0;
     border-bottom: none;
     padding: 0.5rem 0.5rem 0;
@@ -156,7 +223,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     font-weight: 500;
     font-size: 0.9rem;
     padding: 0.6rem 1.2rem;
-    border-radius: 6px 6px 0 0;
+    border-radius: 8px 8px 0 0;
+    transition: all 0.1s;
 }
 .stTabs [aria-selected="true"] {
     color: #0f172a !important;
@@ -167,7 +235,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     background: white;
     border: 1px solid #e2e8f0;
     border-top: none;
-    border-radius: 0 0 8px 8px;
+    border-radius: 0 0 12px 12px;
     padding: 2rem;
 }
 
@@ -176,10 +244,32 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     color: #fbbf24 !important;
     font-family: 'Merriweather', serif;
     font-size: 2rem !important;
+    font-weight: 700;
 }
-[data-testid="stMetricLabel"] { color: #64748b !important; font-size: 0.8rem; }
+[data-testid="stMetricLabel"] {
+    color: #64748b !important;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
 
-hr { border-color: #e2e8f0; }
+/* ── Misc ── */
+hr {
+    border-color: #e2e8f0;
+    margin: 1.5rem 0;
+}
+.stButton > button {
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+}
+.stTextArea textarea, .stTextInput input {
+    border-radius: 8px !important;
+    border: 1px solid #e2e8f0 !important;
+    background: white !important;
+}
+.stTextArea textarea:focus, .stTextInput input:focus {
+    border-color: #fbbf24 !important;
+    box-shadow: 0 0 0 3px rgba(251,191,36,0.2) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -255,20 +345,32 @@ def load_ipc_data() -> pd.DataFrame:
             return df
     return pd.DataFrame()
 
-@st.cache_data(show_spinner=False)
 def load_ncrb_data() -> pd.DataFrame:
-    for p in ["NCRB_CII_2023_Table_18A_2_0.csv", "data/NCRB_CII_2023_Table_18A_2_0.csv"]:
+    """Load NCRB data from CSV. Returns empty DataFrame if not found or error."""
+    # Possible file locations (relative to repository root)
+    possible_paths = [
+        "frontend/NCRB_CII_2023_Table_18A_2_0.csv",   # when running from root (Streamlit Cloud)
+        "NCRB_CII_2023_Table_18A_2_0.csv",            # when running from frontend folder (local)
+        "data/NCRB_CII_2023_Table_18A_2_0.csv",       # old data folder
+    ]
+    for p in possible_paths:
         if Path(p).exists():
-            df = pd.read_csv(p)
-            df.columns = [c.strip() for c in df.columns]
-            return df
+            try:
+                df = pd.read_csv(p)
+                df.columns = [c.strip() for c in df.columns]
+                return df
+            except Exception as e:
+                st.warning(f"Found {p} but could not read it: {e}")
+                return pd.DataFrame()
+    # If we get here, no file found
+    st.info("📁 NCRB data file not found. Place `NCRB_CII_2023_Table_18A_2_0.csv` in the `frontend/` folder to enable statistics.")
     return pd.DataFrame()
 
 ipc_df  = load_ipc_data()
 ncrb_df = load_ncrb_data()
 
 
-# ── IPC search logic (still used for auto‑matching, but not required for civil) ──
+# ── IPC search logic ──────────────────────────────────────────────────────────
 
 CRIMINAL_KEYWORDS = {
     "murder", "homicide", "manslaughter", "kidnapping", "abduction", "robbery",
@@ -358,7 +460,7 @@ def render_ipc_card(row: pd.Series):
 
 # ── System prompt – now covers both criminal and civil law ────────────────────
 
-LEGAL_SYSTEM = """You are AI IPC, an expert Indian legal assistant. Your domain covers both criminal and civil law, including:
+LEGAL_SYSTEM = """You are LexIPC, an expert Indian legal assistant. Your domain covers both criminal and civil law, including:
 - Criminal laws: Indian Penal Code (IPC), Code of Criminal Procedure (CrPC), Bharatiya Nyaya Sanhita (BNS)
 - Civil laws: Transfer of Property Act, Indian Contract Act, Specific Relief Act, Limitation Act, Family Law, etc.
 
@@ -382,7 +484,7 @@ with st.sidebar:
     st.markdown("""
     <div style="padding: 0 0 1rem;">
         <div style="font-family: 'Merriweather', serif; font-size: 2rem; color: #fbbf24; font-weight: 700;">
-            ⚖️ IPC
+            ⚖️ LexIPC
         </div>
         <div style="color: #94a3b8; font-size: 0.8rem; margin-top: -0.2rem;">Indian Legal Expert</div>
     </div>
@@ -390,7 +492,7 @@ with st.sidebar:
 
     has_key = bool(get_api_key())
     if has_key:
-        st.markdown("🟢 **Groq AI Connected**")
+        st.markdown('<span class="badge badge-active">● Groq AI Connected</span>', unsafe_allow_html=True)
     else:
         st.markdown("🔴 **API Key Required**")
         with st.expander("Setup instructions"):
@@ -398,6 +500,7 @@ with st.sidebar:
 **Streamlit Cloud:**  
 1. Go to App → Settings → Secrets  
 2. Add:  
+
 
 
 **Get a free key:** [console.groq.com](https://console.groq.com)
@@ -423,7 +526,7 @@ with st.sidebar:
         if not found.empty:
             r = found.iloc[0]
             st.markdown(f"""
-<div style="background:#1e293b; padding:0.8rem 1rem; border-left:3px solid #fbbf24; border-radius:6px;">
+<div style="background:#1e293b; padding:0.8rem 1rem; border-left:3px solid #fbbf24; border-radius:8px;">
     <b style="color:#fbbf24">{r.get('section','')}</b><br>
     <span style="color:#94a3b8;">{str(r.get('offense',''))[:75]}…</span><br>
     <code style="color:#f87171;">{r.get('punishment','')}</code>
@@ -452,35 +555,20 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    st.caption("⚖️ IPC v4.0 · Criminal & Civil Law · Not legal advice")
+    st.caption("⚖️ LexIPC v4.0 · Criminal & Civil Law · Not legal advice")
     st.caption("💡 Powered by Groq AI")
 
 
 # ── Main header ───────────────────────────────────────────────────────────────
 
-ipc_badge = (
-    f'<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.3);">📚 IPC ({len(ipc_df)})</span>'
-    if not ipc_df.empty else
-    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">⚠ IPC CSV Missing</span>'
-)
-ai_badge = (
-    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.3);">● Groq AI</span>'
-    if has_key else
-    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">✗ API Key Missing</span>'
-)
-ncrb_badge = (
-    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(59,130,246,0.12); color:#3b82f6; border:1px solid rgba(59,130,246,0.3);">📊 NCRB 2023</span>'
-    if not ncrb_df.empty else ""
-)
+ipc_badge = f'<span class="badge badge-ipc">📚 IPC ({len(ipc_df)})</span>' if not ipc_df.empty else '<span class="badge" style="background:rgba(239,68,68,0.1);color:#ef4444;">⚠ IPC CSV Missing</span>'
+ai_badge = '<span class="badge badge-active">● Groq AI</span>' if has_key else '<span class="badge" style="background:rgba(239,68,68,0.1);color:#ef4444;">✗ API Key Missing</span>'
+ncrb_badge = f'<span class="badge badge-ncrb">📊 NCRB 2023</span>' if not ncrb_df.empty else ""
 
 st.markdown(f"""
-<div style="background:linear-gradient(145deg, #0f172a 0%, #1e293b 100%); border-radius:12px; padding:2.5rem 3rem; margin-bottom:2rem;">
-    <div style="font-family:'Merriweather',serif; font-size:2.5rem; color:#fbbf24; font-weight:700; line-height:1.2;">
-        ⚖️ Indian Legal Research Assistant
-    </div>
-    <div style="color:#94a3b8; font-size:0.9rem; margin:0.5rem 0 1rem;">
-        IPC sections · NCRB statistics · AI‑powered analysis (criminal & civil law)
-    </div>
+<div class="header-card">
+    <div class="header-title">⚖️ Indian Legal Research Assistant</div>
+    <div class="header-subtitle">IPC sections · NCRB statistics · AI‑powered analysis (criminal & civil law)</div>
     <div>{ai_badge} {ipc_badge} {ncrb_badge}</div>
 </div>
 """, unsafe_allow_html=True)
@@ -515,7 +603,7 @@ with tab_ai:
     with c1:
         analyse = st.button("⚖️ Analyse Query", type="primary", use_container_width=True)
     with c2:
-        auto_ipc = st.toggle("Auto-match IPC", value=True)   # still works for criminal queries
+        auto_ipc = st.toggle("Auto-match IPC", value=True)
     with c3:
         detailed = st.toggle("Detailed analysis", value=False)
 
@@ -523,7 +611,6 @@ with tab_ai:
         if not query.strip():
             st.warning("Please enter a legal query.")
         else:
-            # Determine if it's criminal – only used for IPC matching, not to block AI
             is_criminal = is_criminal_query(query)
             matched_df = pd.DataFrame()
             if auto_ipc and not ipc_df.empty and is_criminal:
@@ -614,8 +701,13 @@ with tab_ipc:
 with tab_stats:
     st.markdown("### Crime Statistics — NCRB 2023")
     if ncrb_df.empty:
-        st.info("Place `NCRB_CII_2023_Table_18A_2_0.csv` in the app folder to enable charts.")
-        st.markdown("**Once loaded, this tab shows:** crime incidence by State/UT, interactive charts, and export.")
+        st.info("📁 NCRB data file not found. Place `NCRB_CII_2023_Table_18A_2_0.csv` in the `frontend/` folder to enable statistics.")
+        st.markdown("""
+**Once loaded, this tab shows:**
+- Crime incidence by State/UT  
+- Interactive charts with filters  
+- CSV export
+        """)
     else:
         st.caption(f"Source: NCRB Crime in India 2023 · {len(ncrb_df):,} records")
         try:
@@ -680,7 +772,7 @@ with tab_chat:
                 st.markdown('<div class="chat-label" style="text-align:right;">YOU</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="chat-user">{msg["content"]}</div>', unsafe_allow_html=True)
             else:
-                st.markdown('<div class="chat-label">⚖️ IPC</div>', unsafe_allow_html=True)
+                st.markdown('<div class="chat-label">⚖️ LEXIPC</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="chat-assistant">{msg["content"]}</div>', unsafe_allow_html=True)
 
     st.divider()
@@ -710,6 +802,6 @@ with tab_chat:
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div style="text-align:center; padding:2rem; color:#94a3b8; font-size:0.75rem; border-top:1px solid #e2e8f0; margin-top:2rem;">
-    ⚖️ IPC · Indian Legal Research · For informational purposes only · Not legal advice
+    ⚖️ LexIPC · Indian Legal Research · For informational purposes only · Not legal advice
 </div>
 """, unsafe_allow_html=True)
