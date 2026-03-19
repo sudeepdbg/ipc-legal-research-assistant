@@ -1,10 +1,4 @@
-fastapi
-uvicorn
-pandas
-sentence-transformers
-chromadb
-torch
-streamlit
-requests
-python-dotenv
-ollama
+streamlit>=1.32.0
+pandas>=2.0.0
+requests>=2.31.0
+plotly>=5.18.0
