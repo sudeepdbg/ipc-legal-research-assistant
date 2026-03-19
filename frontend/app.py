@@ -211,7 +211,7 @@ def call_ai(prompt: str, history: list = None, system: str = "") -> str:
 
     # Use Mixtral – widely available, fast, and free on Groq
     payload = {
-        "model": "llama-3.3-70b",
+        "model": "gemma2-9b-it",
         "messages": messages,
         "max_tokens": 1500,
     }
