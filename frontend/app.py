@@ -210,7 +210,7 @@ def call_ai(prompt: str, history: list = None, system: str = "") -> str:
     messages.append({"role": "user", "content": prompt})
 
     payload = {
-        "model": "llama3-70b-8192",      # updated model – still free
+        "model": "llama-3.3-70b-versatile",      # updated model – still free
         "messages": messages,
         "max_tokens": 1500,
     }
