@@ -1,5 +1,5 @@
 """
-⚖️ LexIPC — Indian Criminal Law Research Assistant
+⚖️IPC Law Research Assistant
 Single-file Streamlit app. Uses Groq API (free tier) for LLM responses.
 No backend server needed – everything runs in the cloud.
 """
@@ -195,7 +195,7 @@ def get_api_key() -> str:
         return os.environ.get("GROQ_API_KEY", "")
 
 def call_ai(prompt: str, history: list = None, system: str = "") -> str:
-    """Call Groq's llama3-70b model with the given prompt and conversation history."""
+    """Call Groq's Mixtral model (free, stable) with the given prompt and conversation history."""
     api_key = get_api_key()
     if not api_key:
         return "⚠️ **GROQ_API_KEY not configured.**\n\nGet a free key at [console.groq.com](https://console.groq.com) and add it to Streamlit Secrets."
@@ -209,8 +209,9 @@ def call_ai(prompt: str, history: list = None, system: str = "") -> str:
             messages.append({"role": role, "content": m["content"][:2000]})
     messages.append({"role": "user", "content": prompt})
 
+    # Use Mixtral – widely available, fast, and free on Groq
     payload = {
-        "model": "llama-3.3-70b-versatile",      # updated model – still free
+        "model": "mixtral-8x7b-32768",
         "messages": messages,
         "max_tokens": 1500,
     }
@@ -353,16 +354,18 @@ def render_ipc_card(row: pd.Series):
     """, unsafe_allow_html=True)
 
 
-# ── System prompt ─────────────────────────────────────────────────────────────
+# ── System prompt – criminal law only ─────────────────────────────────────────
 
-LEGAL_SYSTEM = """You are LexIPC, an expert Indian criminal law assistant (IPC, CrPC, BNS, Evidence Act).
-Answer only criminal law questions. For civil matters (eviction, property, rent, divorce), politely say it is outside your scope.
+LEGAL_SYSTEM = """You are LexIPC, an expert Indian criminal law assistant. Your domain is strictly the Indian Penal Code (IPC), Code of Criminal Procedure (CrPC), Bharatiya Nyaya Sanhita (BNS), and related criminal statutes.  
+You do **not** answer civil law questions (property, family, contracts, etc.). If the user asks a civil law question, politely explain that you only handle criminal law.  
+
 Format your answers with:
 - Relevant IPC sections in **bold**
 - Punishment, bailable/cognisable status
 - Essential ingredients of the offence
 - Landmark Supreme Court cases
 - BNS 2023 equivalent if applicable
+
 End with: ⚠️ Legal information only, not legal advice."""
 
 
@@ -378,13 +381,13 @@ with st.sidebar:
         <div style="font-family: 'Merriweather', serif; font-size: 2rem; color: #fbbf24; font-weight: 700;">
             ⚖️ LexIPC
         </div>
-        <div style="color: #94a3b8; font-size: 0.8rem; margin-top: -0.2rem;">Indian Criminal Law Research</div>
+        <div style="color: #94a3b8; font-size: 0.8rem; margin-top: -0.2rem;">Indian Criminal Law Expert</div>
     </div>
     """, unsafe_allow_html=True)
 
     has_key = bool(get_api_key())
     if has_key:
-        st.markdown("🟢 **Groq AI Connected**")
+        st.markdown("🟢 **Groq AI Connected (Mixtral)**")
     else:
         st.markdown("🔴 **API Key Required**")
         with st.expander("Setup instructions"):
@@ -392,7 +395,6 @@ with st.sidebar:
 **Streamlit Cloud:**  
 1. Go to App → Settings → Secrets  
 2. Add:  
-
 **Get a free key:** [console.groq.com](https://console.groq.com)
 """)
 
@@ -426,7 +428,7 @@ with st.sidebar:
             st.caption(f"Section '{quick}' not found")
 
     st.divider()
-    st.markdown("**Common Queries**")
+    st.markdown("**Common Criminal Law Queries**")
     QUERIES = [
         ("Murder — IPC 302",            "What is IPC Section 302? Explain elements of murder, punishment, and key case laws like K.M. Nanavati v State."),
         ("Rape — IPC 376",              "Explain IPC Section 376 on rape. What are the elements, punishment, amendments after Nirbhaya case?"),
@@ -443,8 +445,8 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    st.caption("⚖️ LexIPC v3.0 · Legal info only · Not legal advice")
-    st.caption("💡 Powered by Groq AI (llama3)")
+    st.caption("⚖️ LexIPC v3.1 · Criminal law only · Not legal advice")
+    st.caption("💡 Powered by Groq AI (Mixtral)")
 
 
 # ── Main header ───────────────────────────────────────────────────────────────
@@ -455,7 +457,7 @@ ipc_badge = (
     '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">⚠ IPC CSV Missing</span>'
 )
 ai_badge = (
-    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.3);">● Groq AI</span>'
+    '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.3);">● Groq AI (Mixtral)</span>'
     if has_key else
     '<span style="display:inline-block; padding:0.3rem 0.9rem; border-radius:20px; font-size:0.75rem; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">✗ API Key Missing</span>'
 )
@@ -470,7 +472,7 @@ st.markdown(f"""
         ⚖️ Indian Criminal Law Research Assistant
     </div>
     <div style="color:#94a3b8; font-size:0.9rem; margin:0.5rem 0 1rem;">
-        IPC sections · NCRB statistics · AI‑powered analysis
+        IPC sections · NCRB statistics · AI‑powered analysis (criminal law only)
     </div>
     <div>{ai_badge} {ipc_badge} {ncrb_badge}</div>
 </div>
@@ -487,8 +489,8 @@ tab_ai, tab_ipc, tab_stats, tab_chat = st.tabs([
 # TAB 1 — AI RESEARCH
 # ════════════════════════════════════════
 with tab_ai:
-    st.markdown("### Ask a Legal Question")
-    st.caption("Groq AI answers with IPC section references. Scope: Indian criminal law only.")
+    st.markdown("### Ask a Criminal Law Question")
+    st.caption("Mixtral AI answers with IPC section references. Scope: **Indian criminal law only**.")
 
     prefill = st.session_state.prefill_query
     st.session_state.prefill_query = ""
@@ -656,14 +658,14 @@ with tab_stats:
 # TAB 4 — LEGAL CHAT
 # ════════════════════════════════════════
 with tab_chat:
-    st.markdown("### Legal Research Chat")
+    st.markdown("### Criminal Law Chat")
     st.caption("Full conversation history maintained during your session.")
 
     if not st.session_state.chat_history:
         st.markdown("""
 <div style="text-align:center; padding:4rem 2rem; color:#94a3b8;">
     <div style="font-size:4rem;">⚖️</div>
-    <p style="margin-top:1rem; font-size:1.1rem; color:#64748b;">Start a legal research conversation</p>
+    <p style="margin-top:1rem; font-size:1.1rem; color:#64748b;">Start a criminal law conversation</p>
     <p style="font-size:0.9rem;">Ask about IPC sections, bail, criminal procedure, case laws…</p>
 </div>""", unsafe_allow_html=True)
     else:
