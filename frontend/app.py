@@ -195,7 +195,7 @@ def get_api_key() -> str:
         return os.environ.get("GROQ_API_KEY", "")
 
 def call_ai(prompt: str, history: list = None, system: str = "") -> str:
-    """Call Groq's llama3-8b model with the given prompt and conversation history."""
+    """Call Groq's llama3-70b model with the given prompt and conversation history."""
     api_key = get_api_key()
     if not api_key:
         return "⚠️ **GROQ_API_KEY not configured.**\n\nGet a free key at [console.groq.com](https://console.groq.com) and add it to Streamlit Secrets."
@@ -210,7 +210,7 @@ def call_ai(prompt: str, history: list = None, system: str = "") -> str:
     messages.append({"role": "user", "content": prompt})
 
     payload = {
-        "model": "llama3-8b-8192",      # fast, free, good for legal
+        "model": "llama3-70b-8192",      # updated model – still free
         "messages": messages,
         "max_tokens": 1500,
     }
