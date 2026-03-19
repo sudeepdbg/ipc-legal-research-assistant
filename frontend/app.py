@@ -151,87 +151,98 @@ def get_api_key() -> str:
 
 def call_gemini(prompt: str, history: list = None, system: str = "") -> str:
     """
-    Call Gemini using the official google-generativeai SDK.
-    Handles all endpoint versioning automatically.
-    Model: gemini-1.5-flash (free tier, fast, reliable).
+    Call Google Gemini via pure REST API (requests only — no extra packages).
+    Uses v1beta endpoint with system_instruction support.
+    Tries: gemini-1.5-flash → gemini-2.0-flash → gemini-1.5-flash-8b
+    All are free tier models.
     """
+    import requests as _req
+
     api_key = get_api_key()
     if not api_key:
         return (
-            "⚠️ **Gemini API key not set.**\n\n"
-            "Add to Streamlit Secrets (Settings → Secrets):\n"
-            "```\nGEMINI_API_KEY = \"AIza...\"\n```\n"
-            "Get a free key at: https://aistudio.google.com/app/apikey"
+            "API key not configured. "
+            "Go to Settings → Secrets and add: GEMINI_API_KEY = your_key_here. "
+            "Get a free key at aistudio.google.com/app/apikey"
         )
 
-    try:
-        import google.generativeai as genai
-    except ImportError:
-        return (
-            "❌ `google-generativeai` package not installed.\n\n"
-            "Ensure `requirements.txt` contains:\n```\ngoogle-generativeai\n```"
+    # Models to try in order (all free tier, v1beta endpoint)
+    models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-8b"]
+
+    # Build contents array — roles must be "user" or "model" (not "assistant")
+    contents = []
+    if history:
+        for m in history:
+            role = "model" if m["role"] == "assistant" else "user"
+            contents.append({"role": role, "parts": [{"text": m["content"]}]})
+    # Add current prompt as last user message
+    contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+    # Payload — system_instruction is a TOP-LEVEL field (not inside contents)
+    payload = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 2048,
+        },
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH",       "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+        ],
+    }
+    if system:
+        payload["system_instruction"] = {"parts": [{"text": system}]}
+
+    last_err = ""
+    for model in models:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={api_key}"
         )
+        try:
+            resp = _req.post(url, json=payload, timeout=60)
 
-    try:
-        genai.configure(api_key=api_key)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts and parts[0].get("text"):
+                        return parts[0]["text"]
+                # Check for safety block
+                if data.get("promptFeedback", {}).get("blockReason"):
+                    return "Response blocked by safety filter. Please rephrase your query."
+                return "No response text received from Gemini."
 
-        # Try models in order — all free tier
-        models_to_try = [
-            "gemini-1.5-flash",
-            "gemini-2.0-flash-exp",
-            "gemini-1.5-flash-latest",
-        ]
+            elif resp.status_code in (404, 400):
+                last_err = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
+                continue  # try next model
 
-        generation_config = genai.GenerationConfig(
-            temperature=0.3,
-            max_output_tokens=2048,
-        )
-
-        safety_settings = {
-            "HARASSMENT": "BLOCK_ONLY_HIGH",
-            "HATE_SPEECH": "BLOCK_ONLY_HIGH",
-            "DANGEROUS": "BLOCK_ONLY_HIGH",
-        }
-
-        last_err = ""
-        for model_name in models_to_try:
-            try:
-                model = genai.GenerativeModel(
-                    model_name=model_name,
-                    system_instruction=system if system else None,
-                    generation_config=generation_config,
+            elif resp.status_code == 401 or resp.status_code == 403:
+                err = resp.json().get("error", {}).get("message", "Forbidden")
+                return (
+                    f"API key error ({resp.status_code}): {err}. "
+                    "Check your GEMINI_API_KEY in Streamlit Secrets and ensure "
+                    "the Generative Language API is enabled in Google Cloud Console."
                 )
 
-                # Build message list for multi-turn
-                if history:
-                    chat = model.start_chat(history=[
-                        {"role": m["role"], "parts": [m["content"]]}
-                        for m in history[:-1]   # all but last
-                    ])
-                    response = chat.send_message(prompt)
-                else:
-                    response = model.generate_content(prompt)
+            elif resp.status_code == 429:
+                return "Rate limit reached. Please wait a moment and try again."
 
-                return response.text
+            else:
+                last_err = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                continue
 
-            except Exception as e:
-                last_err = str(e)
-                if "404" in last_err or "not found" in last_err.lower():
-                    continue  # try next model
-                # Non-404 error — return immediately
-                break
+        except _req.exceptions.Timeout:
+            return "Request timed out. Please try again."
+        except _req.exceptions.ConnectionError:
+            return "Cannot reach Google API. Check internet connection."
+        except Exception as e:
+            last_err = str(e)
+            continue
 
-        # All models failed
-        if "API_KEY" in last_err or "api key" in last_err.lower() or "403" in last_err:
-            return (
-                "❌ **Invalid API key.**\n\n"
-                "Check your `GEMINI_API_KEY` in Streamlit Secrets.\n"
-                "Make sure the Generative Language API is enabled in Google Cloud Console."
-            )
-        return f"❌ Gemini API error: {last_err[:300]}"
-
-    except Exception as e:
-        return f"❌ Unexpected error: {str(e)[:300]}"
+    return f"All Gemini models failed. Last error: {last_err}"
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────
