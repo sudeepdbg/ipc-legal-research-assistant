@@ -358,7 +358,7 @@ def render_ipc_card(row: pd.Series):
 
 # ── System prompt – now covers both criminal and civil law ────────────────────
 
-LEGAL_SYSTEM = """You are LexIPC, an expert Indian legal assistant. Your domain covers both criminal and civil law, including:
+LEGAL_SYSTEM = """You are AI IPC, an expert Indian legal assistant. Your domain covers both criminal and civil law, including:
 - Criminal laws: Indian Penal Code (IPC), Code of Criminal Procedure (CrPC), Bharatiya Nyaya Sanhita (BNS)
 - Civil laws: Transfer of Property Act, Indian Contract Act, Specific Relief Act, Limitation Act, Family Law, etc.
 
@@ -382,7 +382,7 @@ with st.sidebar:
     st.markdown("""
     <div style="padding: 0 0 1rem;">
         <div style="font-family: 'Merriweather', serif; font-size: 2rem; color: #fbbf24; font-weight: 700;">
-            ⚖️ LexIPC
+            ⚖️ IPC
         </div>
         <div style="color: #94a3b8; font-size: 0.8rem; margin-top: -0.2rem;">Indian Legal Expert</div>
     </div>
@@ -452,7 +452,7 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    st.caption("⚖️ LexIPC v4.0 · Criminal & Civil Law · Not legal advice")
+    st.caption("⚖️ IPC v4.0 · Criminal & Civil Law · Not legal advice")
     st.caption("💡 Powered by Groq AI")
 
 
@@ -680,7 +680,7 @@ with tab_chat:
                 st.markdown('<div class="chat-label" style="text-align:right;">YOU</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="chat-user">{msg["content"]}</div>', unsafe_allow_html=True)
             else:
-                st.markdown('<div class="chat-label">⚖️ LEXIPC</div>', unsafe_allow_html=True)
+                st.markdown('<div class="chat-label">⚖️ IPC</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="chat-assistant">{msg["content"]}</div>', unsafe_allow_html=True)
 
     st.divider()
@@ -710,6 +710,6 @@ with tab_chat:
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div style="text-align:center; padding:2rem; color:#94a3b8; font-size:0.75rem; border-top:1px solid #e2e8f0; margin-top:2rem;">
-    ⚖️ LexIPC · Indian Legal Research · For informational purposes only · Not legal advice
+    ⚖️ IPC · Indian Legal Research · For informational purposes only · Not legal advice
 </div>
 """, unsafe_allow_html=True)
